@@ -5,8 +5,7 @@ export async function fileToImageDataUrls(file: File): Promise<string[]> {
   }
   if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
     const pdfjs: typeof import("pdfjs-dist") = await import("pdfjs-dist");
-    // @ts-expect-error worker URL import
-    const workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
+    const workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url" as string)).default as string;
     pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
     const ab = await file.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data: ab }).promise;
