@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,6 +23,7 @@ type Carrier = { id: string; name: string };
 function InvoicesPage() {
   const { create } = Route.useSearch();
   const navigate = useNavigate();
+  const routeParams = useParams({ strict: false });
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -92,6 +93,8 @@ function InvoicesPage() {
   }
 
   const carrierMap = new Map(carriers.map((c) => [c.id, c.name]));
+
+  if ("id" in routeParams && routeParams.id) return <Outlet />;
 
   return (
     <div className="space-y-4">
