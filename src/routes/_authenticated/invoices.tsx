@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { fmtMoney, fmtDate, fmtDateISO } from "@/lib/format";
+import { TemplatePicker, getTemplateStyle } from "@/components/template-picker";
 import { toast } from "sonner";
 
 const searchSchema = z.object({ create: z.string().optional() });
@@ -31,7 +33,9 @@ function InvoicesPage() {
   const [feePct, setFeePct] = useState(5);
   const [invoiceDate, setInvoiceDate] = useState(fmtDateISO(new Date()));
   const [dueDate, setDueDate] = useState(fmtDateISO(new Date(Date.now() + 30 * 86400000)));
+  const [selectedTemplate, setSelectedTemplate] = useState("professional");
   const [selectedLoads, setSelectedLoads] = useState<{ id: string; carrier_id: string | null; rate: number; load_number: string | null }[]>([]);
+  const [step, setStep] = useState<"details" | "template">("details");
 
   async function refresh() {
     const [{ data: inv }, { data: c }] = await Promise.all([
@@ -54,6 +58,7 @@ function InvoicesPage() {
       const { data: settings } = await supabase.from("settings").select("default_fee_pct").maybeSingle();
       if (settings) setFeePct(Number(settings.default_fee_pct ?? 5));
       setShowCreate(true);
+      setStep("details");
     })();
   }, [create]);
 
@@ -78,6 +83,7 @@ function InvoicesPage() {
         due_date: dueDate,
         gross, fee_pct: feePct, fee_amount: fee, due,
         status: "unpaid",
+        template_id: selectedTemplate,
       }).select("id").single();
       if (error) throw error;
       await supabase.from("settings").update({ invoice_counter: nextNum }).eq("user_id", user.id);
@@ -107,25 +113,45 @@ function InvoicesPage() {
       </div>
 
       {showCreate && (
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <h2 className="font-semibold">New invoice — {carrierMap.get(carrierId ?? "") || "Carrier"} · {selectedLoads.length} load(s)</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div><Label>Invoice date</Label><Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} /></div>
-              <div><Label>Due date</Label><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
-              <div><Label>Fee %</Label><Input type="number" step="0.1" value={feePct} onChange={(e) => setFeePct(Number(e.target.value))} /></div>
-            </div>
-            <div className="text-sm space-y-1 border-t pt-3">
-              <div className="flex justify-between"><span>Gross</span><span>{fmtMoney(gross)}</span></div>
-              <div className="flex justify-between"><span>Fee ({feePct}%)</span><span>- {fmtMoney(fee)}</span></div>
-              <div className="flex justify-between font-semibold"><span>Net Due</span><span>{fmtMoney(due)}</span></div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => { setShowCreate(false); navigate({ to: "/invoices" }); }}>Cancel</Button>
-              <Button onClick={submit} disabled={creating || selectedLoads.length === 0}>{creating ? "Creating…" : "Create Invoice"}</Button>
-            </div>
-          </CardContent>
-        </Card>
+        <Dialog open={showCreate} onOpenChange={setShowCreate}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                {step === "details" ? "Create Invoice" : "Select Template"}
+              </DialogTitle>
+            </DialogHeader>
+
+            {step === "details" ? (
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm">
+                  <p className="font-semibold text-blue-900">{carrierMap.get(carrierId ?? "") || "Carrier"} · {selectedLoads.length} load(s)</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div><Label>Invoice date</Label><Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} /></div>
+                  <div><Label>Due date</Label><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+                  <div><Label>Fee %</Label><Input type="number" step="0.1" value={feePct} onChange={(e) => setFeePct(Number(e.target.value))} /></div>
+                </div>
+                <div className="text-sm space-y-1 border-t pt-3">
+                  <div className="flex justify-between"><span>Gross</span><span>{fmtMoney(gross)}</span></div>
+                  <div className="flex justify-between"><span>Fee ({feePct}%)</span><span>- {fmtMoney(fee)}</span></div>
+                  <div className="flex justify-between font-semibold"><span>Net Due</span><span>{fmtMoney(due)}</span></div>
+                </div>
+                <DialogFooter>
+                  <Button variant="ghost" onClick={() => { setShowCreate(false); navigate({ to: "/invoices" }); }}>Cancel</Button>
+                  <Button onClick={() => setStep("template")} disabled={selectedLoads.length === 0}>Next</Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <TemplatePicker selectedTemplate={selectedTemplate} onSelectTemplate={setSelectedTemplate} />
+                <DialogFooter>
+                  <Button variant="ghost" onClick={() => setStep("details")}>Back</Button>
+                  <Button onClick={submit} disabled={creating}>{creating ? "Creating…" : "Create Invoice"}</Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       )}
 
       <Card>
