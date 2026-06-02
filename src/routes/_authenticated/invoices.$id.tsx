@@ -62,15 +62,23 @@ function InvoiceDetail() {
     window.history.back();
   }
 
-  const pdfDataUri = useMemo(() => {
-    if (!invoice) return null;
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!invoice) return;
+    let url: string | null = null;
     try {
       const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads);
-      return doc.output("datauristring");
+      const blob = doc.output("blob");
+      url = URL.createObjectURL(blob);
+      setPdfUrl(url);
+      setPdfError(null);
     } catch (e) {
       console.error(e);
-      return null;
+      setPdfError(e instanceof Error ? e.message : "Failed to generate preview");
+      setPdfUrl(null);
     }
+    return () => { if (url) URL.revokeObjectURL(url); };
   }, [invoice, settings, carrier, loads]);
 
   if (!invoice) return <div className="text-muted-foreground">Loading…</div>;
