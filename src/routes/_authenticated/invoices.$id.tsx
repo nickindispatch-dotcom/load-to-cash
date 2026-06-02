@@ -62,6 +62,17 @@ function InvoiceDetail() {
     window.history.back();
   }
 
+  const pdfDataUri = useMemo(() => {
+    if (!invoice) return null;
+    try {
+      const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads);
+      return doc.output("datauristring");
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }, [invoice, settings, carrier, loads]);
+
   if (!invoice) return <div className="text-muted-foreground">Loading…</div>;
 
   return (
