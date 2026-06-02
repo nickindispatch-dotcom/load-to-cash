@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,17 @@ function InvoiceDetail() {
     toast.success("Deleted");
     window.history.back();
   }
+
+  const pdfDataUri = useMemo(() => {
+    if (!invoice) return null;
+    try {
+      const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads);
+      return doc.output("datauristring");
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }, [invoice, settings, carrier, loads]);
 
   if (!invoice) return <div className="text-muted-foreground">Loading…</div>;
 
@@ -125,6 +136,21 @@ function InvoiceDetail() {
             <div className="flex justify-between"><span>Fee ({invoice.fee_pct}%)</span><span>- {fmtMoney(invoice.fee_amount)}</span></div>
             <div className="flex justify-between font-semibold border-t pt-1 mt-1"><span>Net Due</span><span>{fmtMoney(invoice.due)}</span></div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <div className="px-4 py-2 border-b text-sm font-medium text-muted-foreground">PDF Preview</div>
+          {pdfDataUri ? (
+            <iframe
+              title="Invoice PDF preview"
+              src={pdfDataUri}
+              className="w-full h-[900px] bg-white rounded-b-lg"
+            />
+          ) : (
+            <div className="p-8 text-center text-muted-foreground text-sm">Generating preview…</div>
+          )}
         </CardContent>
       </Card>
     </div>
