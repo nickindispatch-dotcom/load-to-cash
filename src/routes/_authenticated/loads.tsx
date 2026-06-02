@@ -5,10 +5,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fmtMoney, fmtDate } from "@/lib/format";
+import { fmtMoney, fmtDate, fmtDateISO } from "@/lib/format";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/loads")({
   component: LoadsPage,
@@ -29,6 +32,19 @@ type Load = {
 };
 type Carrier = { id: string; name: string };
 
+const emptyManual = {
+  carrier_id: "",
+  new_carrier_name: "",
+  load_number: "",
+  broker: "",
+  pickup_date: fmtDateISO(new Date()),
+  pickup_city: "",
+  pickup_state: "",
+  delivery_city: "",
+  delivery_state: "",
+  rate: "",
+};
+
 function LoadsPage() {
   const navigate = useNavigate();
   const [loads, setLoads] = useState<Load[]>([]);
@@ -36,6 +52,9 @@ function LoadsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyManual);
 
   async function refresh() {
     setLoading(true);
@@ -92,6 +111,44 @@ function LoadsPage() {
     refresh();
   }
 
+  async function saveManual() {
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+      let carrier_id = form.carrier_id;
+      if (!carrier_id) {
+        const name = form.new_carrier_name.trim();
+        if (!name) throw new Error("Pick a carrier or enter a new carrier name");
+        const { data: cRow, error: cErr } = await supabase.from("carriers")
+          .insert({ user_id: user.id, name }).select("id").single();
+        if (cErr) throw cErr;
+        carrier_id = cRow.id;
+      }
+      const { error } = await supabase.from("loads").insert({
+        user_id: user.id,
+        carrier_id,
+        load_number: form.load_number || null,
+        broker: form.broker || null,
+        pickup_date: form.pickup_date || null,
+        pickup_city: form.pickup_city || null,
+        pickup_state: form.pickup_state || null,
+        delivery_city: form.delivery_city || null,
+        delivery_state: form.delivery_state || null,
+        rate: Number(form.rate || 0),
+      });
+      if (error) throw error;
+      toast.success("Load added");
+      setShowAdd(false);
+      setForm(emptyManual);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -100,6 +157,44 @@ function LoadsPage() {
           <p className="text-sm text-muted-foreground">Unbilled loads available for invoicing.</p>
         </div>
         <div className="flex gap-2">
+          <Dialog open={showAdd} onOpenChange={setShowAdd}>
+            <DialogTrigger asChild>
+              <Button variant="outline"><Plus className="size-4 mr-2" />Add manually</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader><DialogTitle>Add load manually</DialogTitle></DialogHeader>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Label>Carrier</Label>
+                  <Select value={form.carrier_id || "__new"} onValueChange={(v) => setForm({ ...form, carrier_id: v === "__new" ? "" : v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__new">+ New carrier</SelectItem>
+                      {carriers.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {!form.carrier_id && (
+                  <div className="col-span-2">
+                    <Label>New carrier name</Label>
+                    <Input value={form.new_carrier_name} onChange={(e) => setForm({ ...form, new_carrier_name: e.target.value })} />
+                  </div>
+                )}
+                <div><Label>Load #</Label><Input value={form.load_number} onChange={(e) => setForm({ ...form, load_number: e.target.value })} /></div>
+                <div><Label>Broker</Label><Input value={form.broker} onChange={(e) => setForm({ ...form, broker: e.target.value })} /></div>
+                <div><Label>Pickup date</Label><Input type="date" value={form.pickup_date} onChange={(e) => setForm({ ...form, pickup_date: e.target.value })} /></div>
+                <div><Label>Rate ($)</Label><Input type="number" step="0.01" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} /></div>
+                <div><Label>Pickup city</Label><Input value={form.pickup_city} onChange={(e) => setForm({ ...form, pickup_city: e.target.value })} /></div>
+                <div><Label>Pickup state</Label><Input value={form.pickup_state} onChange={(e) => setForm({ ...form, pickup_state: e.target.value })} /></div>
+                <div><Label>Delivery city</Label><Input value={form.delivery_city} onChange={(e) => setForm({ ...form, delivery_city: e.target.value })} /></div>
+                <div><Label>Delivery state</Label><Input value={form.delivery_state} onChange={(e) => setForm({ ...form, delivery_state: e.target.value })} /></div>
+              </div>
+              <DialogFooter>
+                <Button variant="ghost" onClick={() => setShowAdd(false)}>Cancel</Button>
+                <Button onClick={saveManual} disabled={saving}>{saving ? "Saving…" : "Save load"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <Button variant="outline" onClick={deleteSelected} disabled={selected.size === 0}><Trash2 className="size-4 mr-2" />Delete</Button>
           <Button onClick={createInvoice} disabled={!canInvoice}>
             Create Invoice {selectedLoads.length > 0 && `(${selectedLoads.length} · ${fmtMoney(total)})`}
@@ -129,7 +224,7 @@ function LoadsPage() {
               {loading ? (
                 <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
               ) : filtered.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No unbilled loads. Upload rate confirmations to get started.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No unbilled loads. Upload rate confirmations or add a load manually.</TableCell></TableRow>
               ) : filtered.map((l) => (
                 <TableRow key={l.id} data-state={selected.has(l.id) ? "selected" : undefined}>
                   <TableCell><Checkbox checked={selected.has(l.id)} onCheckedChange={() => toggle(l.id)} /></TableCell>
