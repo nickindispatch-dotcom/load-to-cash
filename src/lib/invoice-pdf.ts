@@ -43,12 +43,38 @@ export type Invoice = {
   notes?: string | null;
 };
 
-export function buildInvoicePdf(invoice: Invoice, settings: Settings, carrier: Carrier, loads: LoadRow[]) {
+export type InvoiceTemplate = {
+  id: string;
+  name: string;
+  style: "professional" | "modern" | "minimal" | "advance-way";
+};
+
+export const TEMPLATE_STYLES = [
+  { id: "professional", name: "Professional", style: "professional" as const },
+  { id: "modern", name: "Modern", style: "modern" as const },
+  { id: "minimal", name: "Minimal", style: "minimal" as const },
+  { id: "advance-way", name: "Advance Way Logistics", style: "advance-way" as const },
+];
+
+export function buildInvoicePdf(invoice: Invoice, settings: Settings, carrier: Carrier, loads: LoadRow[], templateStyle: string = "professional") {
   const doc = new jsPDF({ unit: "pt", format: "letter" });
   const pw = doc.internal.pageSize.getWidth();
   const margin = 40;
   const contentW = pw - margin * 2;
 
+  if (templateStyle === "advance-way") {
+    return buildAdvanceWayTemplate(doc, pw, margin, contentW, invoice, settings, carrier, loads);
+  } else if (templateStyle === "modern") {
+    return buildModernTemplate(doc, pw, margin, contentW, invoice, settings, carrier, loads);
+  } else if (templateStyle === "minimal") {
+    return buildMinimalTemplate(doc, pw, margin, contentW, invoice, settings, carrier, loads);
+  }
+
+  // Default: Professional
+  return buildProfessionalTemplate(doc, pw, margin, contentW, invoice, settings, carrier, loads);
+}
+
+function buildProfessionalTemplate(doc: jsPDF, pw: number, margin: number, contentW: number, invoice: Invoice, settings: Settings, carrier: Carrier, loads: LoadRow[]) {
   // ===== Title banner =====
   doc.setFillColor(0, 0, 0);
   doc.rect(margin, 40, contentW, 44, "F");
@@ -169,6 +195,312 @@ export function buildInvoicePdf(invoice: Invoice, settings: Settings, carrier: C
     const lines = doc.splitTextToSize(invoice.notes, contentW);
     doc.text(lines, margin, ay);
   }
+
+  return doc;
+}
+
+function buildModernTemplate(doc: jsPDF, pw: number, margin: number, contentW: number, invoice: Invoice, settings: Settings, carrier: Carrier, loads: LoadRow[]) {
+  const primaryColor = [15, 23, 42];
+  const accentColor = [16, 185, 129];
+
+  // ===== Header =====
+  doc.setFillColor(...primaryColor);
+  doc.rect(0, 0, pw, 80, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(24);
+  doc.text("INVOICE", margin, 50);
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`#${invoice.invoice_number}`, margin, 68);
+
+  // ===== Invoice details =====
+  let y = 110;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("INVOICE DETAILS", margin, y);
+  y += 14;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Date: ${fmtDate(invoice.invoice_date)}`, margin, y); y += 10;
+  doc.text(`Due: ${fmtDate(invoice.due_date)}`, margin, y); y += 10;
+  doc.text(`Carrier: ${carrier.name || "—"}`, margin, y); y += 10;
+
+  // ===== FROM section =====
+  y += 8;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("FROM", margin, y);
+  y += 12;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  if (settings.sender_name) { doc.text(settings.sender_name, margin, y); y += 10; }
+  if (settings.company_name) { doc.text(settings.company_name, margin, y); y += 10; }
+  if (settings.phone) { doc.text(settings.phone, margin, y); y += 10; }
+
+  // ===== Loads table =====
+  y += 8;
+  autoTable(doc, {
+    startY: y,
+    head: [["Load #", "Broker", "Route", "Amount"]],
+    body: loads.map((l) => [
+      l.load_number || "",
+      l.broker || "",
+      `${[l.pickup_city, l.pickup_state].filter(Boolean).join(", ")} → ${[l.delivery_city, l.delivery_state].filter(Boolean).join(", ")}`,
+      fmtMoney(Number(l.rate || 0)),
+    ]),
+    theme: "grid",
+    headStyles: { fillColor: accentColor, textColor: 255, halign: "center", fontStyle: "bold" },
+    bodyStyles: { halign: "center" },
+    columnStyles: { 3: { halign: "right" } },
+    styles: { fontSize: 9, cellPadding: 6, lineColor: [200, 200, 200] },
+    margin: { left: margin, right: margin },
+  });
+
+  // @ts-expect-error jspdf-autotable
+  let ay = (doc.lastAutoTable?.finalY ?? y) + 16;
+
+  // ===== Summary =====
+  doc.setDrawColor(...accentColor);
+  doc.setLineWidth(2);
+  doc.line(margin, ay, margin + contentW, ay);
+  ay += 12;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("SUMMARY", margin, ay);
+  ay += 12;
+
+  const labelW = contentW * 0.5;
+  doc.setFontSize(9);
+  doc.text("Gross Amount:", margin, ay); doc.text(fmtMoney(invoice.gross), margin + labelW, ay, { align: "right" }); ay += 10;
+  doc.text(`Dispatch Fee (${invoice.fee_pct}%):`, margin, ay); doc.text(`- ${fmtMoney(invoice.fee_amount)}`, margin + labelW, ay, { align: "right" }); ay += 10;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("NET DUE:", margin, ay + 4); doc.text(fmtMoney(invoice.due), margin + labelW, ay + 4, { align: "right" });
+
+  return doc;
+}
+
+function buildMinimalTemplate(doc: jsPDF, pw: number, margin: number, contentW: number, invoice: Invoice, settings: Settings, carrier: Carrier, loads: LoadRow[]) {
+  // ===== Title =====
+  let y = 40;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("INVOICE", margin, y);
+  y += 8;
+  doc.setFontSize(10);
+  doc.text(`#${invoice.invoice_number}`, margin, y);
+
+  // ===== Details row =====
+  y += 20;
+  const col1 = margin;
+  const col2 = margin + contentW / 2;
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Date: ${fmtDate(invoice.invoice_date)}`, col1, y);
+  doc.text(`Carrier: ${carrier.name || "—"}`, col2, y);
+  y += 10;
+  doc.text(`Due: ${fmtDate(invoice.due_date)}`, col1, y);
+
+  // ===== Divider =====
+  y += 8;
+  doc.setDrawColor(100);
+  doc.line(margin, y, margin + contentW, y);
+
+  // ===== Loads table =====
+  y += 8;
+  autoTable(doc, {
+    startY: y,
+    head: [["Load #", "Broker", "Route", "Amount"]],
+    body: loads.map((l) => [
+      l.load_number || "",
+      l.broker || "",
+      `${[l.pickup_city, l.pickup_state].filter(Boolean).join(", ")} → ${[l.delivery_city, l.delivery_state].filter(Boolean).join(", ")}`,
+      fmtMoney(Number(l.rate || 0)),
+    ]),
+    theme: "plain",
+    headStyles: { fillColor: [50, 50, 50], textColor: 255, fontStyle: "bold" },
+    bodyStyles: { textColor: 0 },
+    columnStyles: { 3: { halign: "right" } },
+    styles: { fontSize: 9, cellPadding: 6 },
+    margin: { left: margin, right: margin },
+  });
+
+  // @ts-expect-error jspdf-autotable
+  let ay = (doc.lastAutoTable?.finalY ?? y) + 12;
+
+  // ===== Totals =====
+  doc.setDrawColor(100);
+  doc.line(margin, ay, margin + contentW, ay);
+  ay += 8;
+
+  const labelW = contentW * 0.6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("Gross:", margin, ay); doc.text(fmtMoney(invoice.gross), margin + labelW, ay, { align: "right" }); ay += 8;
+  doc.text(`Fee (${invoice.fee_pct}%):`, margin, ay); doc.text(`- ${fmtMoney(invoice.fee_amount)}`, margin + labelW, ay, { align: "right" }); ay += 8;
+
+  doc.setDrawColor(100);
+  doc.line(margin, ay, margin + contentW, ay);
+  ay += 4;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("DUE:", margin, ay); doc.text(fmtMoney(invoice.due), margin + labelW, ay, { align: "right" });
+
+  return doc;
+}
+
+function buildAdvanceWayTemplate(doc: jsPDF, pw: number, margin: number, contentW: number, invoice: Invoice, settings: Settings, carrier: Carrier, loads: LoadRow[]) {
+  const primaryColor = [55, 126, 184]; // Blue
+  const accentColor = [255, 192, 0]; // Gold/Yellow
+
+  // ===== Header with logo area =====
+  doc.setFillColor(...primaryColor);
+  doc.rect(0, 0, pw, 60, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(28);
+  doc.text("ADVANCE WAY", margin, 30);
+  doc.setFontSize(16);
+  doc.setFillColor(...accentColor);
+  doc.rect(margin, 35, 20, 4, "F");
+  doc.setFontSize(14);
+  doc.text("LOGISTICS LLC", margin + 25, 38);
+
+  // Invoice title on right
+  doc.setTextColor(100, 100, 100);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(24);
+  doc.text("INVOICE", pw - margin - 100, 30);
+
+  // Company info
+  let y = 75;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("912 Haldemann Ave. Joliet, IL 60636", margin, y);
+  y += 8;
+  doc.text("Phone: (602) 345-1528", margin, y);
+
+  // Invoice details on right
+  y = 75;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text(`Invoice# ${invoice.invoice_number}`, pw - margin - 80, y);
+  y += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Date: ${fmtDate(invoice.invoice_date)}`, pw - margin - 80, y);
+  y += 8;
+  doc.text(`Due: ${fmtDate(invoice.due_date)}`, pw - margin - 80, y);
+
+  // ===== Bill To section =====
+  y = 115;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("Bill To:", margin, y);
+  y += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(carrier.name?.toUpperCase() || "—", margin, y); y += 8;
+  if (carrier.address) { doc.text(carrier.address, margin, y); y += 8; }
+  if (carrier.phone) { doc.text(`Phone: ${carrier.phone}`, margin, y); y += 8; }
+
+  // ===== Payment section header =====
+  y = 115;
+  doc.setFillColor(...primaryColor);
+  doc.rect(pw - margin - 100, y, 100, 18, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("ACCEPTED PAYMENT OPTIONS", pw - margin - 95, y + 12, { align: "center" });
+
+  y += 22;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("ZELLE DETAILS:", pw - margin - 100, y);
+  y += 8;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("ACCOUNT TITLE:", pw - margin - 100, y);
+  y += 6;
+  doc.text("PHONE NUMBER:", pw - margin - 100, y);
+
+  // ===== Main table header =====
+  y = 170;
+  doc.setFillColor(...primaryColor);
+  doc.rect(margin, y, contentW, 18, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  
+  const colWidths = [contentW * 0.15, contentW * 0.2, contentW * 0.3, contentW * 0.15, contentW * 0.2];
+  let xPos = margin;
+  ["DISPATCHER NAME", "JOB", "PAYMENT TERMS", "DUE DATE"].forEach((header) => {
+    doc.text(header, xPos + 5, y + 12);
+    xPos += colWidths[0] + 5;
+  });
+
+  // ===== Loads table =====
+  y += 18;
+  autoTable(doc, {
+    startY: y,
+    head: [["LOAD NUMBER", "DESCRIPTION", "AMOUNT", "SERVICE FEE"]],
+    body: loads.map((l) => [
+      l.load_number || "",
+      `${[l.pickup_city, l.pickup_state].filter(Boolean).join(", ")} to ${[l.delivery_city, l.delivery_state].filter(Boolean).join(", ")}`,
+      fmtMoney(Number(l.rate || 0)),
+      fmtMoney(Number(l.rate || 0) * (invoice.fee_pct / 100)),
+    ]),
+    theme: "grid",
+    headStyles: { fillColor: [200, 200, 200], textColor: 0, halign: "center", fontStyle: "bold" },
+    bodyStyles: { halign: "center" },
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" } },
+    styles: { fontSize: 9, cellPadding: 6, lineColor: [0, 0, 0] },
+    margin: { left: margin, right: margin },
+  });
+
+  // @ts-expect-error jspdf-autotable
+  let ay = (doc.lastAutoTable?.finalY ?? y) + 8;
+
+  // ===== Summary section =====
+  doc.setFillColor(200, 200, 200);
+  doc.rect(margin + contentW * 0.5, ay, contentW * 0.5, 16, "F");
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("TOTAL", margin + contentW * 0.55, ay + 10);
+  doc.text(fmtMoney(invoice.gross), margin + contentW - 10, ay + 10, { align: "right" });
+  ay += 16;
+
+  doc.setFillColor(200, 200, 200);
+  doc.rect(margin + contentW * 0.5, ay, contentW * 0.5, 16, "F");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`SERVICE FEE (${invoice.fee_pct}%)`, margin + contentW * 0.55, ay + 10);
+  doc.text(fmtMoney(invoice.fee_amount), margin + contentW - 10, ay + 10, { align: "right" });
+  ay += 16;
+
+  doc.setFillColor(...primaryColor);
+  doc.rect(margin + contentW * 0.5, ay, contentW * 0.5, 16, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("PAYABLE AMOUNT", margin + contentW * 0.55, ay + 10);
+  doc.text(fmtMoney(invoice.due), margin + contentW - 10, ay + 10, { align: "right" });
+
+  ay += 24;
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  const noteLines = doc.splitTextToSize("Note: This is an INVOICE for the loads mentioned above, subject to the condition noted below: All loads have been delivered, payment due upon receipt. If you have any questions concerning this invoice, contact: Accounts Department at (602) 345-1528.", contentW);
+  doc.text(noteLines, margin, ay);
 
   return doc;
 }
