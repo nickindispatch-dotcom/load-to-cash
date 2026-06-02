@@ -5,10 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { buildInvoicePdf, buildInvoiceXlsx } from "@/lib/invoice-pdf";
+import { TemplatePicker, getTemplateStyle } from "@/components/template-picker";
 import { toast } from "sonner";
-import { Download, FileSpreadsheet, ArrowLeft, Trash2 } from "lucide-react";
+import { Download, FileSpreadsheet, ArrowLeft, Trash2, Palette } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/invoices/$id")({
   component: InvoiceDetail,
@@ -20,11 +22,14 @@ function InvoiceDetail() {
   const [carrier, setCarrier] = useState<any>(null);
   const [loads, setLoads] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState("professional");
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
 
   async function refresh() {
     const { data: inv } = await supabase.from("invoices").select("*").eq("id", id).maybeSingle();
     if (!inv) return;
     setInvoice(inv);
+    setSelectedTemplate(inv.template_id || "professional");
     const [{ data: c }, { data: l }, { data: s }] = await Promise.all([
       inv.carrier_id ? supabase.from("carriers").select("*").eq("id", inv.carrier_id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from("loads").select("*").eq("invoice_id", id),
@@ -36,9 +41,17 @@ function InvoiceDetail() {
   }
   useEffect(() => { refresh(); }, [id]);
 
+  async function updateTemplate(templateId: string) {
+    await supabase.from("invoices").update({ template_id: templateId }).eq("id", id);
+    setSelectedTemplate(templateId);
+    setShowTemplateDialog(false);
+    toast.success("Template updated");
+  }
+
   async function downloadPdf() {
     if (!invoice) return;
-    const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads);
+    const templateStyle = getTemplateStyle(selectedTemplate);
+    const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads, templateStyle);
     doc.save(`invoice-${invoice.invoice_number}.pdf`);
   }
   async function downloadXlsx() {
@@ -68,7 +81,8 @@ function InvoiceDetail() {
     if (!invoice) return;
     let url: string | null = null;
     try {
-      const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads);
+      const templateStyle = getTemplateStyle(selectedTemplate);
+      const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads, templateStyle);
       const blob = doc.output("blob");
       url = URL.createObjectURL(blob);
       setPdfUrl(url);
@@ -79,7 +93,7 @@ function InvoiceDetail() {
       setPdfUrl(null);
     }
     return () => { if (url) URL.revokeObjectURL(url); };
-  }, [invoice, settings, carrier, loads]);
+  }, [invoice, settings, carrier, loads, selectedTemplate]);
 
   if (!invoice) return <div className="text-muted-foreground">Loading…</div>;
 
@@ -102,6 +116,9 @@ function InvoiceDetail() {
               <SelectItem value="overdue">Overdue</SelectItem>
             </SelectContent>
           </Select>
+          <Button variant="outline" size="sm" onClick={() => setShowTemplateDialog(true)}>
+            <Palette className="size-4 mr-2" />Template
+          </Button>
           <Button variant="outline" onClick={downloadXlsx}><FileSpreadsheet className="size-4 mr-2" />XLSX</Button>
           <Button onClick={downloadPdf}><Download className="size-4 mr-2" />PDF</Button>
           <Button variant="ghost" size="icon" onClick={remove}><Trash2 className="size-4" /></Button>
@@ -163,6 +180,15 @@ function InvoiceDetail() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Select Invoice Template</DialogTitle>
+          </DialogHeader>
+          <TemplatePicker selectedTemplate={selectedTemplate} onSelectTemplate={updateTemplate} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
