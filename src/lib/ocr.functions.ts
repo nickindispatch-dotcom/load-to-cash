@@ -194,7 +194,7 @@ export const extractRateConfirmation = createServerFn({ method: "POST" })
       delivery_state: (l.delivery_state || "").toUpperCase().slice(0, 2),
       rate: Number(l.rate) || 0,
       source_file_url: data.sourceFileUrl ?? null,
-      raw_extraction: extraction as unknown as Record<string, unknown>,
+      raw_extraction: extraction as never,
     }));
 
     let insertedLoadIds: string[] = [];
