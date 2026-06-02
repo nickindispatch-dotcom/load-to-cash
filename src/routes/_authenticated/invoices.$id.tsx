@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,15 +62,23 @@ function InvoiceDetail() {
     window.history.back();
   }
 
-  const pdfDataUri = useMemo(() => {
-    if (!invoice) return null;
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!invoice) return;
+    let url: string | null = null;
     try {
       const doc = buildInvoicePdf(invoice, settings ?? {}, carrier ?? {}, loads);
-      return doc.output("datauristring");
+      const blob = doc.output("blob");
+      url = URL.createObjectURL(blob);
+      setPdfUrl(url);
+      setPdfError(null);
     } catch (e) {
       console.error(e);
-      return null;
+      setPdfError(e instanceof Error ? e.message : "Failed to generate preview");
+      setPdfUrl(null);
     }
+    return () => { if (url) URL.revokeObjectURL(url); };
   }, [invoice, settings, carrier, loads]);
 
   if (!invoice) return <div className="text-muted-foreground">Loading…</div>;
@@ -142,14 +150,16 @@ function InvoiceDetail() {
       <Card>
         <CardContent className="p-0">
           <div className="px-4 py-2 border-b text-sm font-medium text-muted-foreground">PDF Preview</div>
-          {pdfDataUri ? (
+          {pdfUrl ? (
             <iframe
               title="Invoice PDF preview"
-              src={pdfDataUri}
+              src={pdfUrl}
               className="w-full h-[900px] bg-white rounded-b-lg"
             />
           ) : (
-            <div className="p-8 text-center text-muted-foreground text-sm">Generating preview…</div>
+            <div className="p-8 text-center text-muted-foreground text-sm">
+              {pdfError ? `Preview error: ${pdfError}` : "Generating preview…"}
+            </div>
           )}
         </CardContent>
       </Card>
