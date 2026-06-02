@@ -90,7 +90,7 @@ function InvoiceDetail() {
           <Button asChild variant="ghost" size="icon"><Link to="/invoices"><ArrowLeft className="size-4" /></Link></Button>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Invoice #{invoice.invoice_number}</h1>
-            <p className="text-sm text-muted-foreground">{carrier?.name ?? "—"} · {fmtDate(invoice.invoice_date)}</p>
+            <p className="text-sm text-muted-foreground">{carrier?.name ?? "—"} · {fmtDate(invoice.invoice_date)} · Due: {fmtDate(invoice.due_date)}</p>
           </div>
         </div>
         <div className="flex gap-2">
