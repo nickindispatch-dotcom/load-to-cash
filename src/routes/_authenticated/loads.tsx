@@ -128,13 +128,15 @@ function LoadsPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not signed in");
+      if (!form.rate) throw new Error("Load price is required");
       let carrier_id = form.carrier_id;
       if (!carrier_id) {
         const name = form.new_carrier_name.trim();
         if (!name) throw new Error("Pick a carrier or enter a new carrier name");
         const { data: cRow, error: cErr } = await supabase.from("carriers")
-          .insert({ user_id: user.id, name }).select("id").single();
+          .insert({ user_id: user.id, name }).select("id").maybeSingle();
         if (cErr) throw cErr;
+        if (!cRow) throw new Error("Failed to create carrier");
         carrier_id = cRow.id;
       }
       const { error } = await supabase.from("loads").insert({
@@ -147,10 +149,10 @@ function LoadsPage() {
         pickup_state: form.pickup_state || null,
         delivery_city: form.delivery_city || null,
         delivery_state: form.delivery_state || null,
-        rate: Number(form.rate || 0),
+        rate: Number(form.rate),
         mc_number: form.mc_number || null,
         phone_number: form.phone_number || null,
-        my_charge_pct: Number(form.my_charge_pct || 0),
+        my_charge_pct: form.my_charge_pct ? Number(form.my_charge_pct) : 0,
         my_charge_amount: Number(myChargeAmount),
       });
       if (error) throw error;
