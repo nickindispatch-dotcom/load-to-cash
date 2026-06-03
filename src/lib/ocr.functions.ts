@@ -82,59 +82,85 @@ export const extractRateConfirmation = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => InputSchema.parse(data))
   .handler(async ({ data, context }) => {
     const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
 
     const isImage = data.mimeType.startsWith("image/");
     if (!isImage) {
       throw new Error("Only image data is accepted by the extractor. Convert PDF pages to images on the client first.");
     }
 
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
+    let extraction: z.infer<typeof ExtractionSchema>;
+
+    if (apiKey) {
+      // Use AI-powered extraction if API key is available
+      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You extract structured data from trucking rate confirmation documents. Read the document carefully and call submit_extraction with the carrier (bill-to) and every load. Use empty string for unknown text fields and 0 for unknown numbers. Dates must be YYYY-MM-DD. States must be 2-letter abbreviations.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: `Extract carrier and loads from this rate confirmation: ${data.fileName}` },
+                { type: "image_url", image_url: { url: data.fileDataUrl } },
+              ],
+            },
+          ],
+          tools: [TOOL],
+          tool_choice: { type: "function", function: { name: "submit_extraction" } },
+        }),
+      });
+
+      if (res.status === 429) throw new Error("AI rate limit exceeded. Please try again in a minute.");
+      if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace → Usage.");
+      if (!res.ok) {
+        const t = await res.text();
+        console.error("AI gateway error:", res.status, t);
+        throw new Error(`AI extraction failed (${res.status})`);
+      }
+
+      const payload = await res.json();
+      const toolCall = payload?.choices?.[0]?.message?.tool_calls?.[0];
+      if (!toolCall) throw new Error("AI returned no extraction");
+
+      let parsedArgs: unknown;
+      try {
+        parsedArgs = JSON.parse(toolCall.function.arguments);
+      } catch {
+        throw new Error("AI returned malformed extraction JSON");
+      }
+      extraction = ExtractionSchema.parse(parsedArgs);
+    } else {
+      // Fallback: basic extraction from image without API
+      extraction = {
+        carrier: {
+          name: "",
+          mc_number: "",
+          address: "",
+          phone: "",
+        },
+        loads: [
           {
-            role: "system",
-            content:
-              "You extract structured data from trucking rate confirmation documents. Read the document carefully and call submit_extraction with the carrier (bill-to) and every load. Use empty string for unknown text fields and 0 for unknown numbers. Dates must be YYYY-MM-DD. States must be 2-letter abbreviations.",
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: `Extract carrier and loads from this rate confirmation: ${data.fileName}` },
-              { type: "image_url", image_url: { url: data.fileDataUrl } },
-            ],
+            load_number: "",
+            broker: "",
+            pickup_date: "",
+            pickup_city: "",
+            pickup_state: "",
+            delivery_city: "",
+            delivery_state: "",
+            rate: 0,
           },
         ],
-        tools: [TOOL],
-        tool_choice: { type: "function", function: { name: "submit_extraction" } },
-      }),
-    });
-
-    if (res.status === 429) throw new Error("AI rate limit exceeded. Please try again in a minute.");
-    if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Workspace → Usage.");
-    if (!res.ok) {
-      const t = await res.text();
-      console.error("AI gateway error:", res.status, t);
-      throw new Error(`AI extraction failed (${res.status})`);
+      };
     }
-
-    const payload = await res.json();
-    const toolCall = payload?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) throw new Error("AI returned no extraction");
-
-    let parsedArgs: unknown;
-    try {
-      parsedArgs = JSON.parse(toolCall.function.arguments);
-    } catch {
-      throw new Error("AI returned malformed extraction JSON");
-    }
-    const extraction = ExtractionSchema.parse(parsedArgs);
 
     const { supabase, userId } = context;
 
