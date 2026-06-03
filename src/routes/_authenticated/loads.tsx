@@ -129,16 +129,21 @@ function LoadsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not signed in");
       if (!form.rate) throw new Error("Load price is required");
+
       let carrier_id = form.carrier_id;
       if (!carrier_id) {
         const name = form.new_carrier_name.trim();
         if (!name) throw new Error("Pick a carrier or enter a new carrier name");
         const { data: cRow, error: cErr } = await supabase.from("carriers")
           .insert({ user_id: user.id, name }).select("id").maybeSingle();
-        if (cErr) throw cErr;
-        if (!cRow) throw new Error("Failed to create carrier");
+        if (cErr) {
+          console.error("Carrier insert error:", cErr);
+          throw new Error(`Failed to create carrier: ${cErr.message}`);
+        }
+        if (!cRow) throw new Error("Carrier creation failed - no ID returned");
         carrier_id = cRow.id;
       }
+
       const { error } = await supabase.from("loads").insert({
         user_id: user.id,
         carrier_id,
@@ -155,13 +160,18 @@ function LoadsPage() {
         my_charge_pct: form.my_charge_pct ? Number(form.my_charge_pct) : 0,
         my_charge_amount: Number(myChargeAmount),
       });
-      if (error) throw error;
+      if (error) {
+        console.error("Load insert error:", error);
+        throw new Error(`Failed to save load: ${error.message}`);
+      }
       toast.success("Load added");
       setShowAdd(false);
       setForm(emptyManual);
       refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      const msg = e instanceof Error ? e.message : "Failed to save load";
+      console.error("Save error:", msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }

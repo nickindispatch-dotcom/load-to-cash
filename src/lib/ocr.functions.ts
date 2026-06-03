@@ -175,8 +175,9 @@ export const extractRateConfirmation = createServerFn({ method: "POST" })
             phone: extraction.carrier.phone || "",
           })
           .select("id")
-          .single();
+          .maybeSingle();
         if (error) throw new Error(`Carrier insert failed: ${error.message}`);
+        if (!created) throw new Error("Carrier creation returned no ID");
         carrierId = created.id;
       }
     }
